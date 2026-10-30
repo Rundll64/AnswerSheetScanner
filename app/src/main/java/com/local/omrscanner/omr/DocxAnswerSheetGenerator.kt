@@ -117,9 +117,16 @@ object DocxAnswerSheetGenerator {
         val subjCount = config.subjectiveCount.coerceIn(0, 5)
         val subjLines = config.subjectiveLinesPerQuestion.coerceIn(2, 20)
 
+        // v1.0.1: 双模打印支持
+        val (primaryHex, bgHex) = when (config.colorMode) {
+            AnswerSheetGenerator.SheetColorMode.CORAL_RED -> Pair("FF8A8A", "FFF5F5")
+            AnswerSheetGenerator.SheetColorMode.LIGHT_GRAY -> Pair("B5B5B5", "F8FAFC")
+            AnswerSheetGenerator.SheetColorMode.CLASSIC_RED -> Pair("B91C1C", "FEF2F2")
+        }
+
         // 1. 考卷主标题
         sb.append("<w:p><w:pPr><w:jc w:val=\"center\"/><w:spacing w:before=\"60\" w:after=\"40\"/></w:pPr>")
-        sb.append("""<w:r><w:rPr><w:b/><w:sz w:val="32"/><w:color w:val="B91C1C"/></w:rPr><w:t>■ $safeTitle · 答题卡 ■</w:t></w:r>""")
+        sb.append("""<w:r><w:rPr><w:b/><w:sz w:val="32"/><w:color w:val="$primaryHex"/></w:rPr><w:t>■ $safeTitle · 答题卡 ■</w:t></w:r>""")
         sb.append("</w:p>")
 
         // 2. 副标题与统计
@@ -130,12 +137,12 @@ object DocxAnswerSheetGenerator {
 
         // 3. 考务警示
         sb.append("<w:p><w:pPr><w:jc w:val=\"center\"/><w:spacing w:after=\"80\"/></w:pPr>")
-        sb.append("""<w:r><w:rPr><w:sz w:val="16"/><w:color w:val="B91C1C"/></w:rPr><w:t>考生注意：请在各题目的答题区域内作答，超出红色矩形边框限定区域的答案无效</w:t></w:r>""")
+        sb.append("""<w:r><w:rPr><w:sz w:val="16"/><w:color w:val="$primaryHex"/></w:rPr><w:t>考生注意：请在各题目的答题区域内作答，超出红色矩形边框限定区域的答案无效</w:t></w:r>""")
         sb.append("</w:p>")
 
         // 4. 考生信息与准考证号表格
         sb.append("""<w:tbl><w:tblPr><w:tblW w:type="dxa" w:w="10500"/><w:jc w:val="center"/>""")
-        sb.append("""<w:tblBorders><w:top w:val="single" w:sz="6" w:color="B91C1C"/><w:bottom w:val="single" w:sz="6" w:color="B91C1C"/><w:left w:val="single" w:sz="6" w:color="B91C1C"/><w:right w:val="single" w:sz="6" w:color="B91C1C"/><w:insideH w:val="single" w:sz="4" w:color="E2E8F0"/><w:insideV w:val="single" w:sz="4" w:color="E2E8F0"/></w:tblBorders></w:tblPr>""")
+        sb.append("""<w:tblBorders><w:top w:val="single" w:sz="6" w:color="$primaryHex"/><w:bottom w:val="single" w:sz="6" w:color="$primaryHex"/><w:left w:val="single" w:sz="6" w:color="$primaryHex"/><w:right w:val="single" w:sz="6" w:color="$primaryHex"/><w:insideH w:val="single" w:sz="4" w:color="E2E8F0"/><w:insideV w:val="single" w:sz="4" w:color="E2E8F0"/></w:tblBorders></w:tblPr>""")
 
         sb.append("<w:tr>")
         // 左列：考生手写信息与注意事项
@@ -146,20 +153,20 @@ object DocxAnswerSheetGenerator {
         sb.append("</w:tc>")
 
         // 右列：准考证号填涂区
-        sb.append("""<w:tc><w:tcPr><w:tcW w:type="dxa" w:w="4700"/><w:shd w:fill="FEF2F2"/><w:tcMar><w:top w:w="60" w:type="dxa"/><w:bottom w:w="60" w:type="dxa"/><w:left w:w="60" w:type="dxa"/><w:right w:w="60" w:type="dxa"/></w:tcMar></w:tcPr>""")
-        sb.append("<w:p><w:pPr><w:jc w:val=\"center\"/></w:pPr><w:r><w:rPr><w:b/><w:color w:val=\"B91C1C\"/></w:rPr><w:t>准考证号 / 学号填涂区</w:t></w:r></w:p>")
+        sb.append("""<w:tc><w:tcPr><w:tcW w:type="dxa" w:w="4700"/><w:shd w:fill="$bgHex"/><w:tcMar><w:top w:w="60" w:type="dxa"/><w:bottom w:w="60" w:type="dxa"/><w:left w:w="60" w:type="dxa"/><w:right w:w="60" w:type="dxa"/></w:tcMar></w:tcPr>""")
+        sb.append("<w:p><w:pPr><w:jc w:val=\"center\"/></w:pPr><w:r><w:rPr><w:b/><w:color w:val=\"$primaryHex\"/></w:rPr><w:t>准考证号 / 学号填涂区</w:t></w:r></w:p>")
         val idBoxes = (1..digits).joinToString("  ") { "[   ]" }
         sb.append("<w:p><w:pPr><w:jc w:val=\"center\"/></w:pPr><w:r><w:rPr><w:b/></w:rPr><w:t>$idBoxes</w:t></w:r></w:p>")
         for (d in 0..9 step 2) {
             val lineStr = (1..digits).joinToString(" ") { "[$d][${d + 1}]" }
-            sb.append("<w:p><w:pPr><w:jc w:val=\"center\"/></w:pPr><w:r><w:rPr><w:b/><w:sz w:val=\"20\"/><w:color w:val=\"B91C1C\"/></w:rPr><w:t>$lineStr</w:t></w:r></w:p>")
+            sb.append("<w:p><w:pPr><w:jc w:val=\"center\"/></w:pPr><w:r><w:rPr><w:b/><w:sz w:val=\"20\"/><w:color w:val=\"$primaryHex\"/></w:rPr><w:t>$lineStr</w:t></w:r></w:p>")
         }
         sb.append("</w:tc>")
         sb.append("</w:tr></w:tbl>")
 
         // 5. 第 Ⅰ 卷 客观选择题作答区
         sb.append("<w:p><w:pPr><w:spacing w:before=\"120\" w:after=\"60\"/></w:pPr>")
-        sb.append("""<w:r><w:rPr><w:b/><w:sz w:val="22"/><w:color w:val="B91C1C"/></w:rPr><w:t>第 Ⅰ 卷  选择题作答区（共 $qCount 题，请用 2B 铅笔将对应选项框涂黑）</w:t></w:r>""")
+        sb.append("""<w:r><w:rPr><w:b/><w:sz w:val="22"/><w:color w:val="$primaryHex"/></w:rPr><w:t>第 Ⅰ 卷  选择题作答区（共 $qCount 题，请用 2B 铅笔将对应选项框涂黑）</w:t></w:r>""")
         sb.append("</w:p>")
 
         // 根据题目数量自适应排布列数（少则1~2列，多则3~5列，绝不浪费空间）
@@ -179,15 +186,15 @@ object DocxAnswerSheetGenerator {
         val optBracketString = optLetters.joinToString("   ") { "[$it]" } // 明确带有 [A] [B] [C] [D] 括号！
 
         sb.append("""<w:tbl><w:tblPr><w:tblW w:type="dxa" w:w="10500"/><w:jc w:val="center"/>""")
-        sb.append("""<w:tblBorders><w:top w:val="single" w:sz="6" w:color="B91C1C"/><w:bottom w:val="single" w:sz="6" w:color="B91C1C"/><w:left w:val="single" w:sz="6" w:color="B91C1C"/><w:right w:val="single" w:sz="6" w:color="B91C1C"/><w:insideH w:val="single" w:sz="4" w:color="E2E8F0"/><w:insideV w:val="single" w:sz="4" w:color="B91C1C"/></w:tblBorders></w:tblPr>""")
+        sb.append("""<w:tblBorders><w:top w:val="single" w:sz="6" w:color="$primaryHex"/><w:bottom w:val="single" w:sz="6" w:color="$primaryHex"/><w:left w:val="single" w:sz="6" w:color="$primaryHex"/><w:right w:val="single" w:sz="6" w:color="$primaryHex"/><w:insideH w:val="single" w:sz="4" w:color="E2E8F0"/><w:insideV w:val="single" w:sz="4" w:color="$primaryHex"/></w:tblBorders></w:tblPr>""")
 
         // 表头行
         sb.append("<w:tr>")
         for (c in 0 until numCols) {
             val st = c * 10 + 1
             val en = minOf((c + 1) * 10, qCount)
-            sb.append("""<w:tc><w:tcPr><w:tcW w:type="dxa" w:w="$colWidth"/><w:shd w:fill="FEF2F2"/><w:vAlign w:val="center"/></w:tcPr>""")
-            sb.append("<w:p><w:pPr><w:jc w:val=\"center\"/></w:pPr><w:r><w:rPr><w:b/><w:sz w:val=\"18\"/><w:color w:val=\"B91C1C\"/></w:rPr><w:t>第 %02d ~ %02d 题</w:t></w:r></w:p></w:tc>".format(st, en))
+            sb.append("""<w:tc><w:tcPr><w:tcW w:type="dxa" w:w="$colWidth"/><w:shd w:fill="$bgHex"/><w:vAlign w:val="center"/></w:tcPr>""")
+            sb.append("<w:p><w:pPr><w:jc w:val=\"center\"/></w:pPr><w:r><w:rPr><w:b/><w:sz w:val=\"18\"/><w:color w:val=\"$primaryHex\"/></w:rPr><w:t>第 %02d ~ %02d 题</w:t></w:r></w:p></w:tc>".format(st, en))
         }
         sb.append("</w:tr>")
 
@@ -198,7 +205,7 @@ object DocxAnswerSheetGenerator {
                 val qn = c * 10 + r + 1
                 sb.append("""<w:tc><w:tcPr><w:tcW w:type="dxa" w:w="$colWidth"/><w:vAlign w:val="center"/><w:tcMar><w:top w:w="30" w:type="dxa"/><w:bottom w:w="30" w:type="dxa"/><w:left w:w="40" w:type="dxa"/><w:right w:w="40" w:type="dxa"/></w:tcMar></w:tcPr>""")
                 if (qn <= qCount) {
-                    sb.append("<w:p><w:pPr><w:jc w:val=\"left\"/></w:pPr><w:r><w:rPr><w:b/><w:color w:val=\"B91C1C\"/></w:rPr><w:t>%02d </w:t></w:r><w:r><w:rPr><w:b/><w:color w:val=\"B91C1C\"/><w:sz w:val=\"24\"/></w:rPr><w:t> %s</w:t></w:r></w:p>".format(qn, optBracketString))
+                    sb.append("<w:p><w:pPr><w:jc w:val=\"left\"/></w:pPr><w:r><w:rPr><w:b/><w:color w:val=\"$primaryHex\"/></w:rPr><w:t>%02d </w:t></w:r><w:r><w:rPr><w:b/><w:color w:val=\"$primaryHex\"/><w:sz w:val=\"24\"/></w:rPr><w:t> %s</w:t></w:r></w:p>".format(qn, optBracketString))
                 } else {
                     sb.append("<w:p><w:pPr><w:jc w:val=\"center\"/></w:pPr><w:r><w:rPr><w:color w:val=\"CBD5E1\"/></w:rPr><w:t>---------------------</w:t></w:r></w:p>")
                 }
@@ -210,7 +217,7 @@ object DocxAnswerSheetGenerator {
             if (config.isPartitioned && r == 4) {
                 sb.append("<w:tr>")
                 for (c in 0 until numCols) {
-                    sb.append("""<w:tc><w:tcPr><w:tcW w:type="dxa" w:w="$colWidth"/><w:shd w:fill="FFF1F2"/></w:tcPr><w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:rPr><w:sz w:val="12"/><w:color w:val="E11D48"/></w:rPr><w:t>▲ 5题分组防串行线 ▲</w:t></w:r></w:p></w:tc>""")
+                    sb.append("""<w:tc><w:tcPr><w:tcW w:type="dxa" w:w="$colWidth"/><w:shd w:fill="$bgHex"/></w:tcPr><w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:rPr><w:sz w:val="12"/><w:color w:val="$primaryHex"/></w:rPr><w:t>▲ 5题分组防串行线 ▲</w:t></w:r></w:p></w:tc>""")
                 }
                 sb.append("</w:tr>")
             }
@@ -220,20 +227,20 @@ object DocxAnswerSheetGenerator {
         // 6. 第 Ⅱ 卷 非选择题（解答题）作答区（按用户自定义题数与行数生成）
         if (subjCount > 0) {
             sb.append("<w:p><w:pPr><w:spacing w:before=\"120\" w:after=\"60\"/></w:pPr>")
-            sb.append("""<w:r><w:rPr><w:b/><w:sz w:val="22"/><w:color w:val="B91C1C"/></w:rPr><w:t>第 Ⅱ 卷  非选择题作答区（请用 0.5 毫米黑色墨水签字笔在各题规定区域内作答）</w:t></w:r>""")
+            sb.append("""<w:r><w:rPr><w:b/><w:sz w:val="22"/><w:color w:val="$primaryHex"/></w:rPr><w:t>第 Ⅱ 卷  非选择题作答区（请用 0.5 毫米黑色墨水签字笔在各题规定区域内作答）</w:t></w:r>""")
             sb.append("</w:p>")
 
             // 教师评分统分表
-            sb.append("""<w:tbl><w:tblPr><w:tblW w:type="dxa" w:w="10500"/><w:jc w:val="center"/><w:tblBorders><w:top w:val="single" w:sz="4" w:color="B91C1C"/><w:bottom w:val="single" w:sz="4" w:color="B91C1C"/><w:left w:val="single" w:sz="4" w:color="B91C1C"/><w:right w:val="single" w:sz="4" w:color="B91C1C"/><w:insideH w:val="single" w:sz="4" w:color="E2E8F0"/><w:insideV w:val="single" w:sz="4" w:color="B91C1C"/></w:tblBorders></w:tblPr>""")
+            sb.append("""<w:tbl><w:tblPr><w:tblW w:type="dxa" w:w="10500"/><w:jc w:val="center"/><w:tblBorders><w:top w:val="single" w:sz="4" w:color="$primaryHex"/><w:bottom w:val="single" w:sz="4" w:color="$primaryHex"/><w:left w:val="single" w:sz="4" w:color="$primaryHex"/><w:right w:val="single" w:sz="4" w:color="$primaryHex"/><w:insideH w:val="single" w:sz="4" w:color="E2E8F0"/><w:insideV w:val="single" w:sz="4" w:color="$primaryHex"/></w:tblBorders></w:tblPr>""")
             sb.append("<w:tr>")
-            sb.append("""<w:tc><w:tcPr><w:shd w:fill="FEF2F2"/></w:tcPr><w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:rPr><w:b/><w:color w:val="B91C1C"/></w:rPr><w:t>题号</w:t></w:r></w:p></w:tc>""")
-            sb.append("""<w:tc><w:tcPr><w:shd w:fill="FEF2F2"/></w:tcPr><w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:rPr><w:b/><w:color w:val="B91C1C"/></w:rPr><w:t>一(客观)</w:t></w:r></w:p></w:tc>""")
+            sb.append("""<w:tc><w:tcPr><w:shd w:fill="$bgHex"/></w:tcPr><w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:rPr><w:b/><w:color w:val="$primaryHex"/></w:rPr><w:t>题号</w:t></w:r></w:p></w:tc>""")
+            sb.append("""<w:tc><w:tcPr><w:shd w:fill="$bgHex"/></w:tcPr><w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:rPr><w:b/><w:color w:val="$primaryHex"/></w:rPr><w:t>一(客观)</w:t></w:r></w:p></w:tc>""")
             for (si in 0 until subjCount) {
                 val qn = qCount + si + 1
-                sb.append("""<w:tc><w:tcPr><w:shd w:fill="FEF2F2"/></w:tcPr><w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:rPr><w:b/><w:color w:val="B91C1C"/></w:rPr><w:t>${qn}题</w:t></w:r></w:p></w:tc>""")
+                sb.append("""<w:tc><w:tcPr><w:shd w:fill="$bgHex"/></w:tcPr><w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:rPr><w:b/><w:color w:val="$primaryHex"/></w:rPr><w:t>${qn}题</w:t></w:r></w:p></w:tc>""")
             }
-            sb.append("""<w:tc><w:tcPr><w:shd w:fill="FEF2F2"/></w:tcPr><w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:rPr><w:b/><w:color w:val="B91C1C"/></w:rPr><w:t>总分</w:t></w:r></w:p></w:tc>""")
-            sb.append("""<w:tc><w:tcPr><w:shd w:fill="FEF2F2"/></w:tcPr><w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:rPr><w:b/><w:color w:val="B91C1C"/></w:rPr><w:t>评卷人</w:t></w:r></w:p></w:tc>""")
+            sb.append("""<w:tc><w:tcPr><w:shd w:fill="$bgHex"/></w:tcPr><w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:rPr><w:b/><w:color w:val="$primaryHex"/></w:rPr><w:t>总分</w:t></w:r></w:p></w:tc>""")
+            sb.append("""<w:tc><w:tcPr><w:shd w:fill="$bgHex"/></w:tcPr><w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:rPr><w:b/><w:color w:val="$primaryHex"/></w:rPr><w:t>评卷人</w:t></w:r></w:p></w:tc>""")
             sb.append("</w:tr>")
 
             // 得分数值行
@@ -248,9 +255,9 @@ object DocxAnswerSheetGenerator {
             for (si in 0 until subjCount) {
                 val qn = qCount + si + 1
                 val score = 10 + si * 5
-                sb.append("<w:p><w:pPr><w:spacing w:before=\"100\" w:after=\"40\"/></w:pPr><w:r><w:rPr><w:b/><w:color w:val=\"B91C1C\"/></w:rPr><w:t>第 ${qn} 题. 综合解答题（${score}分）</w:t></w:r></w:p>")
+                sb.append("<w:p><w:pPr><w:spacing w:before=\"100\" w:after=\"40\"/></w:pPr><w:r><w:rPr><w:b/><w:color w:val=\"$primaryHex\"/></w:rPr><w:t>第 ${qn} 题. 综合解答题（${score}分）</w:t></w:r></w:p>")
 
-                sb.append("""<w:tbl><w:tblPr><w:tblW w:type="dxa" w:w="10500"/><w:jc w:val="center"/><w:tblBorders><w:top w:val="single" w:sz="6" w:color="B91C1C"/><w:bottom w:val="single" w:sz="6" w:color="B91C1C"/><w:left w:val="single" w:sz="6" w:color="B91C1C"/><w:right w:val="single" w:sz="6" w:color="B91C1C"/><w:insideH w:val="single" w:sz="4" w:color="E2E8F0"/><w:insideV w:val="none"/></w:tblBorders></w:tblPr>""")
+                sb.append("""<w:tbl><w:tblPr><w:tblW w:type="dxa" w:w="10500"/><w:jc w:val="center"/><w:tblBorders><w:top w:val="single" w:sz="6" w:color="$primaryHex"/><w:bottom w:val="single" w:sz="6" w:color="$primaryHex"/><w:left w:val="single" w:sz="6" w:color="$primaryHex"/><w:right w:val="single" w:sz="6" w:color="$primaryHex"/><w:insideH w:val="single" w:sz="4" w:color="E2E8F0"/><w:insideV w:val="none"/></w:tblBorders></w:tblPr>""")
                 for (li in 0 until subjLines) {
                     sb.append("<w:tr>")
                     sb.append("""<w:tc><w:tcPr><w:tcW w:type="dxa" w:w="10500"/><w:tcMar><w:top w:w="80" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:left w:w="60" w:type="dxa"/><w:right w:w="60" w:type="dxa"/></w:tcMar></w:tcPr>""")

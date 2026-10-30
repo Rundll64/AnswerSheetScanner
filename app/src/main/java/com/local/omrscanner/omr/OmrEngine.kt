@@ -25,8 +25,14 @@ import kotlin.math.min
  */
 object OmrEngine {
 
-    private const val FILL_THRESHOLD = 0.28f
-    private const val SMUDGE_WARNING_THRESHOLD = 0.18f
+    private const val FILL_THRESHOLD = 0.24f
+    private const val SMUDGE_WARNING_THRESHOLD = 0.15f
+
+    // v1.0.1 黑白打印兼容阈值
+    private const val BW_BASELINE_FULL_SELECT_THRESHOLD = 0.48f
+    private const val BW_NET_FILL_THRESHOLD = 0.24f
+    private const val BW_NET_RAW_MIN_THRESHOLD = 0.30f
+    private const val BW_STUDENT_ID_NET_THRESHOLD = 0.22f
 
     data class ProcessedSheetOutput(
         val record: ScanRecord,
@@ -75,13 +81,12 @@ object OmrEngine {
             TemplateSpec.CANONICAL_HEIGHT
         )
 
-        val warpedBinary = adaptiveThresholdBradley(warpedBitmap)
+        val warpedBinary = adaptiveThresholdBradley(warpedBitmap, applyPencilErosion = true)
 
-        // 识别考号（带局部自适应微调）
+        // v1.0.1 识别考号：同列印刷底噪中位数自校准（黑白打印防线 3）
         val studentIdBuilder = StringBuilder()
         for (col in 0 until examConfig.studentIdDigits) {
-            var bestDigit = 0
-            var maxFill = -1f
+            val colRatios = mutableListOf<Float>()
             for (digit in 0..9) {
                 val rect = TemplateSpec.getStudentIdBubbleRect(col, digit, examConfig.studentIdDigits)
                 val ratio = computeFillRatioAdaptive(
@@ -92,12 +97,30 @@ object OmrEngine {
                     searchRadiusX = 8,
                     searchRadiusY = 5
                 )
-                if (ratio > maxFill) {
-                    maxFill = ratio
+                colRatios.add(ratio)
+            }
+
+            // 计算一列 10 个数字填涂率的中位数作为黑白印刷字模底噪基线
+            val sortedRatios = colRatios.sorted()
+            val medianNoise = (sortedRatios[4] + sortedRatios[5]) / 2f
+
+            var bestDigit = 0
+            var maxNet = -1f
+            var maxRaw = -1f
+            for (digit in 0..9) {
+                val raw = colRatios[digit]
+                val net = (raw - medianNoise).coerceAtLeast(0f)
+                if (net > maxNet) {
+                    maxNet = net
+                    maxRaw = raw
                     bestDigit = digit
                 }
             }
-            if (maxFill >= 0.22f) {
+
+            // 净增黑度 >= 0.20 且原始黑度 >= 0.26 则判定有效填涂
+            if (maxNet >= 0.20f && maxRaw >= 0.26f) {
+                studentIdBuilder.append(bestDigit)
+            } else if (maxRaw >= 0.38f) {
                 studentIdBuilder.append(bestDigit)
             } else {
                 studentIdBuilder.append("0")
@@ -105,7 +128,7 @@ object OmrEngine {
         }
         val recognizedStudentId = studentIdBuilder.toString()
 
-        // 识别客观题并判分（带自适应题数与局部质心微调）
+        // v1.0.1 识别客观题并判分：同题最小印刷底噪扣除法（Baseline Subtraction）
         val gradeResults = mutableListOf<QuestionGradeResult>()
         var totalObjectiveScore = 0f
         var maxTotalScore = 0f
@@ -113,8 +136,7 @@ object OmrEngine {
         val activeQuestions = examConfig.questions.take(examConfig.activeQuestionCount)
         for (qConfig in activeQuestions) {
             maxTotalScore += qConfig.fullScore
-            val ratios = mutableMapOf<String, Float>()
-            val selected = mutableSetOf<String>()
+            val rawRatios = mutableMapOf<String, Float>()
             var smudgeWarn = false
 
             TemplateSpec.OPTIONS.forEachIndexed { idx, optName ->
@@ -131,18 +153,32 @@ object OmrEngine {
                     searchRadiusX = 8,
                     searchRadiusY = 6
                 )
-                ratios[optName] = fill
-                if (fill >= FILL_THRESHOLD) {
+                rawRatios[optName] = fill
+            }
+
+            // 计算同题 4 个选项中最小填涂率作为黑白字模底噪基线
+            val minRaw = rawRatios.values.minOrNull() ?: 0f
+            val baselineNoise = if (minRaw >= BW_BASELINE_FULL_SELECT_THRESHOLD) 0f else minRaw
+
+            // 扣除底噪后的净增填涂率 (Net Fill Ratio)
+            val netRatios = rawRatios.mapValues { (_, raw) ->
+                (raw - baselineNoise).coerceAtLeast(0f)
+            }
+
+            val selected = mutableSetOf<String>()
+            for ((optName, raw) in rawRatios) {
+                val net = netRatios[optName] ?: 0f
+                if ((net >= BW_NET_FILL_THRESHOLD && raw >= BW_NET_RAW_MIN_THRESHOLD) || raw >= 0.40f) {
                     selected.add(optName)
-                } else if (fill >= SMUDGE_WARNING_THRESHOLD) {
+                } else if (net >= 0.12f && raw >= SMUDGE_WARNING_THRESHOLD) {
                     smudgeWarn = true
                 }
             }
 
-            // 轻涂补偿
+            // 轻涂补偿（净增显著度优先）
             if (selected.isEmpty()) {
-                val bestEntry = ratios.maxByOrNull { it.value }
-                if (bestEntry != null && bestEntry.value >= 0.24f) {
+                val bestEntry = netRatios.maxByOrNull { it.value }
+                if (bestEntry != null && bestEntry.value >= 0.18f && (rawRatios[bestEntry.key] ?: 0f) >= 0.24f) {
                     selected.add(bestEntry.key)
                     smudgeWarn = true
                 }
@@ -165,7 +201,7 @@ object OmrEngine {
                     correctOptions = correctSet,
                     earnedScore = earned,
                     maxScore = qConfig.fullScore,
-                    optionFillRatios = ratios,
+                    optionFillRatios = rawRatios,
                     hasSmudgeWarning = smudgeWarn
                 )
             )
@@ -207,12 +243,12 @@ object OmrEngine {
             corners[0], corners[1], corners[2], corners[3],
             TemplateSpec.CANONICAL_WIDTH, TemplateSpec.CANONICAL_HEIGHT
         )
-        val warpedBinary = adaptiveThresholdBradley(warpedBitmap)
+        val warpedBinary = adaptiveThresholdBradley(warpedBitmap, applyPencilErosion = true)
 
         val extracted = mutableMapOf<Int, Set<String>>()
         for (qNum in 1..activeQuestionCount) {
             val selected = mutableSetOf<String>()
-            val ratios = mutableMapOf<String, Float>()
+            val rawRatios = mutableMapOf<String, Float>()
             TemplateSpec.OPTIONS.forEachIndexed { idx, optName ->
                 val rect = TemplateSpec.getQuestionOptionBubbleRect(
                     questionNumber = qNum,
@@ -225,14 +261,22 @@ object OmrEngine {
                     TemplateSpec.CANONICAL_HEIGHT,
                     rect
                 )
-                ratios[optName] = fill
-                if (fill >= FILL_THRESHOLD) {
+                rawRatios[optName] = fill
+            }
+
+            val minRaw = rawRatios.values.minOrNull() ?: 0f
+            val baselineNoise = if (minRaw >= BW_BASELINE_FULL_SELECT_THRESHOLD) 0f else minRaw
+            val netRatios = rawRatios.mapValues { (_, raw) -> (raw - baselineNoise).coerceAtLeast(0f) }
+
+            for ((optName, raw) in rawRatios) {
+                val net = netRatios[optName] ?: 0f
+                if ((net >= BW_NET_FILL_THRESHOLD && raw >= BW_NET_RAW_MIN_THRESHOLD) || raw >= 0.40f) {
                     selected.add(optName)
                 }
             }
             if (selected.isEmpty()) {
-                val best = ratios.maxByOrNull { it.value }
-                if (best != null && best.value >= 0.22f) {
+                val best = netRatios.maxByOrNull { it.value }
+                if (best != null && best.value >= 0.18f && (rawRatios[best.key] ?: 0f) >= 0.22f) {
                     selected.add(best.key)
                 }
             }
@@ -244,9 +288,16 @@ object OmrEngine {
     }
 
     /**
-     * Bradley-Roth 自适应二值化
+     * Bradley-Roth 自适应二值化（v1.0.1 升级版：自适应红盲 + 黑白打印兼容）
+     *
+     * @param applyPencilErosion 是否启用 4 邻域实心度腐蚀过滤（v1.0.1 黑白打印防线 1）
+     *        启用后仅保留周围 4 邻域全黑的实心铅笔涂点核心像素，
+     *        可剥离黑白打印产生的 1~2px 印刷细线、方括号与空心字模。
      */
-    private fun adaptiveThresholdBradley(bitmap: Bitmap): BooleanArray {
+    private fun adaptiveThresholdBradley(
+        bitmap: Bitmap,
+        applyPencilErosion: Boolean = false
+    ): BooleanArray {
         val w = bitmap.width
         val h = bitmap.height
         val pixels = IntArray(w * h)
@@ -254,6 +305,10 @@ object OmrEngine {
 
         val integral = LongArray((w + 1) * (h + 1))
         val gray = IntArray(w * h)
+
+        // v1.0.1: 统计红色像素占比，用于判定是彩色打印卷还是黑白打印卷
+        var redPixelCount = 0
+        var totalPixelCount = 0
 
         for (y in 0 until h) {
             var rowSum = 0L
@@ -268,9 +323,12 @@ object OmrEngine {
 
                 // 中高考考务级红盲光学过滤（Red-Dropout Filter）：
                 // 标准答题卡的红框、红色选项括号 [A][B][C][D] 及准考证号红字：
-                // 红色成分高 (r > 80)，且显著强于绿蓝两色通道：
+                // v1.0.1 升级：同时兼容高明度浅珊瑚红 #FF8A8A 与传统考务红 #E50012
                 val gbAvg = (g + b) / 2f
                 val isRedInk = (r > 80) && ((r / max(1f, gbAvg)) > 1.28f) && ((r - g) > 18) && ((r - b) > 18)
+
+                if (isRedInk) redPixelCount++
+                totalPixelCount++
 
                 val lum = if (isRedInk) {
                     255 // 红色印刷线条在红盲下完全消除为白底，彻底消除红框误识别！
@@ -285,7 +343,7 @@ object OmrEngine {
             }
         }
 
-        val out = BooleanArray(w * h)
+        val rawBinary = BooleanArray(w * h)
         val radius = max(12, min(w, h) / 28)
         val tFactor = 82
 
@@ -302,10 +360,34 @@ object OmrEngine {
                         integral[(y2 + 1) * (w + 1) + x1] +
                         integral[y1 * (w + 1) + x1]
                 val lum = gray[rowOffset + x]
-                out[rowOffset + x] = (lum * 100L) < (sum * tFactor / count)
+                rawBinary[rowOffset + x] = (lum * 100L) < (sum * tFactor / count)
             }
         }
-        return out
+
+        // v1.0.1 黑白打印防线 1：4 邻域实心度腐蚀过滤
+        // 当检测到几乎无红色像素（黑白打印件）或显式启用时，
+        // 仅保留上下左右 4 邻域全为黑的核心像素（实心铅笔涂点），
+        // 剥离黑白打印出来的 1~2px 细线、方括号与空心字母笔画
+        val isBlackWhitePrint = redPixelCount.toFloat() / max(1, totalPixelCount) < 0.005f
+        if (applyPencilErosion || isBlackWhitePrint) {
+            val eroded = BooleanArray(w * h)
+            for (y in 1 until h - 1) {
+                val rowOffset = y * w
+                for (x in 1 until w - 1) {
+                    if (rawBinary[rowOffset + x] &&
+                        rawBinary[rowOffset + x - 1] &&      // 左
+                        rawBinary[rowOffset + x + 1] &&      // 右
+                        rawBinary[(y - 1) * w + x] &&        // 上
+                        rawBinary[(y + 1) * w + x]           // 下
+                    ) {
+                        eroded[rowOffset + x] = true
+                    }
+                }
+            }
+            return eroded
+        }
+
+        return rawBinary
     }
 
     /**
@@ -512,8 +594,13 @@ object OmrEngine {
     }
 
     /**
-     * 局部自适应质心搜索黑度计算：
+     * 局部自适应质心搜索黑度计算（v1.0.1 防吸边升级版）：
      * 克服拍摄倾斜、微小透视畸变及镜头边缘形变，在候选窗口内自适应寻找 2B 铅笔黑度峰值
+     *
+     * v1.0.1 升级特性（黑白打印防线 2）：
+     * 1. 收紧垂直内缩比例至 0.20f，让基础采样框远离单元格上下方的黑色表格横线
+     * 2. 引入滑窗中心距离高斯衰减权重 R_weighted = R_raw * (1.0 - 0.018 * (|dx| + |dy|))
+     *    防止未涂选项向边缘滑窗时“吸边”到黑色表格线
      */
     private fun computeFillRatioAdaptive(
         binary: BooleanArray,
@@ -531,15 +618,15 @@ object OmrEngine {
         val rectH = baseY2 - baseY1
         if (rectW <= 4 || rectH <= 4) return 0f
 
-        // 核心有效采样子区域（向内收缩 2~3 像素，避开外部轮廓边界）
-        val insetX = max(1, (rectW * 0.12f).toInt())
-        val insetY = max(1, (rectH * 0.12f).toInt())
+        // v1.0.1: 核心有效采样子区域向内收缩 18%~20%，避开外部轮廓边界与表格线
+        val insetX = max(1, (rectW * 0.14f).toInt())
+        val insetY = max(1, (rectH * 0.20f).toInt())
         val innerW = rectW - insetX * 2
         val innerH = rectH - insetY * 2
         val totalCount = innerW * innerH
         if (totalCount <= 0) return 0f
 
-        var maxDark = 0
+        var maxWeightedDark = 0f
         val step = 2
 
         for (dy in -searchRadiusY..searchRadiusY step step) {
@@ -555,13 +642,17 @@ object OmrEngine {
                         if (binary[rowOffset + x]) dark++
                     }
                 }
-                if (dark > maxDark) {
-                    maxDark = dark
+
+                // v1.0.1 防线 2：中心距离衰减权重，只有真正的实心涂块才能克服距离衰减赢得峰值
+                val distDecay = (1.0f - 0.018f * (abs(dx) + abs(dy))).coerceAtLeast(0.60f)
+                val weighted = dark.toFloat() * distDecay
+                if (weighted > maxWeightedDark) {
+                    maxWeightedDark = weighted
                 }
             }
         }
 
-        return maxDark.toFloat() / totalCount
+        return maxWeightedDark / totalCount
     }
 
     /**

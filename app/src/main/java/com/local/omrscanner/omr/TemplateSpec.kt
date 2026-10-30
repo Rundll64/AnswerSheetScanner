@@ -1,6 +1,7 @@
 package com.local.omrscanner.omr
 
 import com.local.omrscanner.model.NormalizedRect
+import com.local.omrscanner.model.Point2D
 
 /**
  * 遵循全国中高考与国家标准化考试标准的归一化相对坐标规范。
@@ -10,8 +11,30 @@ import com.local.omrscanner.model.NormalizedRect
 object TemplateSpec {
     const val CANONICAL_WIDTH = 1200
     const val CANONICAL_HEIGHT = 1700
+    const val MARKER_SIZE = 40f
 
     val OPTIONS = listOf("A", "B", "C", "D")
+
+    /**
+     * 四角视觉定位锚点（Fiducial Markers）在 1200 x 1700 画布上的标准绝对像素中心坐标
+     * 顺序严格为：TopLeft, TopRight, BottomRight, BottomLeft
+     */
+    val CANONICAL_MARKERS = listOf(
+        Point2D(CANONICAL_WIDTH * 0.02f, CANONICAL_HEIGHT * 0.015f), // Top-Left: (24f, 25.5f)
+        Point2D(CANONICAL_WIDTH * 0.98f, CANONICAL_HEIGHT * 0.015f), // Top-Right: (1176f, 25.5f)
+        Point2D(CANONICAL_WIDTH * 0.98f, CANONICAL_HEIGHT * 0.985f), // Bottom-Right: (1176f, 1674.5f)
+        Point2D(CANONICAL_WIDTH * 0.02f, CANONICAL_HEIGHT * 0.985f)  // Bottom-Left: (24f, 1674.5f)
+    )
+
+    /**
+     * 四角视觉定位锚点的标准归一化坐标 [0.0f, 1.0f]
+     */
+    val NORMALIZED_MARKERS = listOf(
+        Point2D(0.02f, 0.015f),
+        Point2D(0.98f, 0.015f),
+        Point2D(0.98f, 0.985f),
+        Point2D(0.02f, 0.985f)
+    )
 
     /**
      * 依据客观题总数自适应计算排版网格：

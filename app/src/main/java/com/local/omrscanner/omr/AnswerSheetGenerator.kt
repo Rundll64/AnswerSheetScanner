@@ -36,6 +36,12 @@ import kotlin.random.Random
  */
 object AnswerSheetGenerator {
 
+    enum class SheetColorMode(val label: String) {
+        CORAL_RED("高明度浅珊瑚红（双模推荐，兼容黑白/彩色）"),
+        LIGHT_GRAY("黑白浅灰（纯黑白激光/复印机专用）"),
+        CLASSIC_RED("经典考务红（传统彩色印刷）")
+    }
+
     data class SheetConfig(
         val title: String = "标准化考试答题卡",
         val subject: String = "通用科目",
@@ -47,80 +53,84 @@ object AnswerSheetGenerator {
         val simulatedStudentId: String = "20260815",
         // 自定义解答题（非选择题）参数
         val subjectiveCount: Int = 2,      // 解答题数量: 0 ~ 5 题
-        val subjectiveLinesPerQuestion: Int = 8 // 每题书写行数: 2 ~ 20 行
+        val subjectiveLinesPerQuestion: Int = 8, // 每题书写行数: 2 ~ 20 行
+        // v1.0.1: 双模打印色调配置
+        val colorMode: SheetColorMode = SheetColorMode.CORAL_RED
     )
 
     const val WIDTH = 1200
     const val HEIGHT = 1700
 
-    // 考试标准红（Pantone 185C Crimson Red）
-    private val EXAM_RED = Color.rgb(220, 38, 38)
-    private val EXAM_RED_BG = Color.rgb(254, 242, 242)
-    private val SLATE_GRAY = Color.rgb(71, 85, 105)
-    private val DARK_TEXT = Color.rgb(15, 23, 42)
-    private val PENCIL_BLACK = Color.rgb(38, 38, 38)
-    private val LINE_GRAY = Color.rgb(226, 232, 240)
-
     /**
-     * 动态绘制高保真全国统考标准 A4 答题卡 Bitmap
+     * 动态绘制高保真全国统考标准 A4 答题卡 Bitmap（v1.0.1 升级版：兼容双模打印与四角白边净空区）
      */
     fun generateSheetBitmap(config: SheetConfig): Bitmap {
         val bmp = Bitmap.createBitmap(WIDTH, HEIGHT, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bmp)
         canvas.drawColor(Color.WHITE)
 
+        // v1.0.1: 根据双模配置选取印刷颜色
+        val examRed = when (config.colorMode) {
+            SheetColorMode.CORAL_RED -> Color.rgb(255, 138, 138) // 高明度浅珊瑚红 #FF8A8A (等效黑白亮度 173)
+            SheetColorMode.LIGHT_GRAY -> Color.rgb(181, 181, 181) // 黑白浅灰 #B5B5B5
+            SheetColorMode.CLASSIC_RED -> Color.rgb(220, 38, 38)  // 经典考务深红
+        }
+        val examRedBg = when (config.colorMode) {
+            SheetColorMode.CORAL_RED -> Color.rgb(255, 246, 246)
+            SheetColorMode.LIGHT_GRAY -> Color.rgb(248, 250, 252)
+            SheetColorMode.CLASSIC_RED -> Color.rgb(254, 242, 242)
+        }
+        val slateGray = Color.rgb(71, 85, 105)
+        val darkText = Color.rgb(15, 23, 42)
+        val pencilBlack = Color.rgb(38, 38, 38)
+        val lineGray = Color.rgb(226, 232, 240)
+
         val blackSolid = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.BLACK
             style = Paint.Style.FILL
         }
         val redStrokeThick = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = EXAM_RED
+            color = examRed
             style = Paint.Style.STROKE
-            strokeWidth = 2.4f
+            strokeWidth = 2.0f
         }
         val redStrokeThin = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = EXAM_RED
+            color = examRed
             style = Paint.Style.STROKE
-            strokeWidth = 1.2f
+            strokeWidth = 1.0f // v1.0.1: 细线控制在 1.0px，黑白打印下被形态学腐蚀轻松消除
         }
         val redDashBorder = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = EXAM_RED
+            color = examRed
             style = Paint.Style.STROKE
-            strokeWidth = 1.2f
+            strokeWidth = 1.0f
             pathEffect = DashPathEffect(floatArrayOf(6f, 4f), 0f)
         }
         val redFill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = EXAM_RED
+            color = examRed
             style = Paint.Style.FILL
         }
         val redBgFill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = EXAM_RED_BG
+            color = examRedBg
             style = Paint.Style.FILL
         }
         val pencilFill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = PENCIL_BLACK
+            color = pencilBlack
             style = Paint.Style.FILL
         }
         val grayLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = LINE_GRAY
+            color = lineGray
             style = Paint.Style.STROKE
             strokeWidth = 1.0f
         }
 
-        // ==================== 1. 四角定位标记 (Fiducial Markers, 纯黑实心) ====================
-        val markerSize = 40f
-        val corners = listOf(
-            Pair(WIDTH * 0.02f, HEIGHT * 0.015f),
-            Pair(WIDTH * 0.98f, HEIGHT * 0.015f),
-            Pair(WIDTH * 0.98f, HEIGHT * 0.985f),
-            Pair(WIDTH * 0.02f, HEIGHT * 0.985f)
-        )
-        for ((cx, cy) in corners) {
+        // ==================== 1. 四角定位标记 (Fiducial Markers, 严格对接 TemplateSpec) ====================
+        val markerSize = TemplateSpec.MARKER_SIZE
+        for (pt in TemplateSpec.CANONICAL_MARKERS) {
             canvas.drawRect(
-                cx - markerSize / 2f,
-                cy - markerSize / 2f,
-                cx + markerSize / 2f,
-                cy + markerSize / 2f,
+                pt.x - markerSize / 2f,
+                pt.y - markerSize / 2f,
+                pt.x + markerSize / 2f,
+                pt.y + markerSize / 2f,
                 blackSolid
             )
         }
@@ -145,7 +155,7 @@ object AnswerSheetGenerator {
             "${config.title} · 标准化考试答题卡"
         }
         val mainTitlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = EXAM_RED
+            color = examRed
             textSize = 30f
             isFakeBoldText = true
             textAlign = Paint.Align.CENTER
@@ -153,7 +163,7 @@ object AnswerSheetGenerator {
         canvas.drawText(titleText, WIDTH / 2f, 54f, mainTitlePaint)
 
         val subTitlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = DARK_TEXT
+            color = darkText
             textSize = 17f
             isFakeBoldText = true
             textAlign = Paint.Align.CENTER
@@ -167,7 +177,7 @@ object AnswerSheetGenerator {
         )
 
         val cautionPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = EXAM_RED
+            color = examRed
             textSize = 13.5f
             textAlign = Paint.Align.CENTER
         }
@@ -184,7 +194,7 @@ object AnswerSheetGenerator {
         canvas.drawRoundRect(box1Rect, 4f, 4f, redStrokeThin)
 
         val infoPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = DARK_TEXT
+            color = darkText
             textSize = 15.5f
             isFakeBoldText = true
         }
@@ -204,7 +214,7 @@ object AnswerSheetGenerator {
         canvas.drawText("注意事项", noticeTagRect.centerX(), noticeTagRect.centerY() + 4.5f, tagTextPaint)
 
         val noticeItemPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = SLATE_GRAY
+            color = slateGray
             textSize = 12.5f
         }
         canvas.drawText("1. 答题前先将姓名、准考证号填写清楚，核准条形码。", box1Rect.left + 14f, box1Rect.top + 146f, noticeItemPaint)
@@ -213,7 +223,7 @@ object AnswerSheetGenerator {
         canvas.drawText("4. 保持卡面清洁，严禁折叠、破损、污染，严禁做任何标记。", box1Rect.left + 14f, box1Rect.top + 212f, noticeItemPaint)
 
         val sampleTitlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = DARK_TEXT
+            color = darkText
             textSize = 13f
             isFakeBoldText = true
         }
@@ -221,7 +231,7 @@ object AnswerSheetGenerator {
         canvas.drawText("错误填涂: [ √ ]  [ × ]  [/]  [ ● ]", box1Rect.left + 140f, box1Rect.top + 242f, noticeItemPaint)
 
         val pencilHintPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = EXAM_RED
+            color = examRed
             textSize = 12f
             isFakeBoldText = true
         }
@@ -231,14 +241,14 @@ object AnswerSheetGenerator {
         val box2TopRect = RectF(475f, 125f, 720f, 280f)
         canvas.drawRoundRect(box2TopRect, 4f, 4f, redDashBorder)
         val barcodeTitlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = EXAM_RED
+            color = examRed
             textSize = 14f
             isFakeBoldText = true
             textAlign = Paint.Align.CENTER
         }
         canvas.drawText("条形码粘贴区", box2TopRect.centerX(), box2TopRect.top + 26f, barcodeTitlePaint)
         val barcodeSubPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = SLATE_GRAY
+            color = slateGray
             textSize = 11.5f
             textAlign = Paint.Align.CENTER
         }
@@ -263,7 +273,7 @@ object AnswerSheetGenerator {
         canvas.drawRect(markerHeaderRect, redBgFill)
         canvas.drawLine(box2BottomRect.left, box2BottomRect.top + 24f, box2BottomRect.right, box2BottomRect.top + 24f, redStrokeThin)
         val markHeaderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = EXAM_RED
+            color = examRed
             textSize = 12.5f
             isFakeBoldText = true
             textAlign = Paint.Align.CENTER
@@ -271,14 +281,14 @@ object AnswerSheetGenerator {
         canvas.drawText("考务标记（考生禁填）", box2BottomRect.centerX(), box2BottomRect.top + 17f, markHeaderPaint)
 
         val markItemPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = DARK_TEXT
+            color = darkText
             textSize = 13.5f
             isFakeBoldText = true
         }
         canvas.drawText("缺考标记: [   ]", box2BottomRect.left + 20f, box2BottomRect.top + 58f, markItemPaint)
         canvas.drawText("违纪标记: [   ]", box2BottomRect.left + 130f, box2BottomRect.top + 58f, markItemPaint)
         val teacherPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = SLATE_GRAY
+            color = slateGray
             textSize = 11.5f
             textAlign = Paint.Align.CENTER
         }
@@ -323,7 +333,7 @@ object AnswerSheetGenerator {
         }
 
         val digitLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = EXAM_RED
+            color = examRed
             textSize = 14.5f
             isFakeBoldText = true
             textAlign = Paint.Align.CENTER
@@ -384,19 +394,19 @@ object AnswerSheetGenerator {
         }
 
         val qNumPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = EXAM_RED
-            textSize = 16f
+            color = slateGray // v1.0.1: 题号采用深灰，保证学生阅读清晰，黑白复印与右侧选项彻底隔离
+            textSize = 15.5f
             isFakeBoldText = true
             textAlign = Paint.Align.CENTER
         }
         val optLetterPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = EXAM_RED
-            textSize = 16.5f
-            isFakeBoldText = true
+            color = examRed
+            textSize = 16f
+            isFakeBoldText = false // v1.0.1: 细体字模，黑白打印下呈现浅灰，腐蚀过滤后零残留
             textAlign = Paint.Align.CENTER
         }
         val colHeaderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = EXAM_RED
+            color = examRed
             textSize = 13.5f
             isFakeBoldText = true
             textAlign = Paint.Align.CENTER
@@ -497,13 +507,13 @@ object AnswerSheetGenerator {
         canvas.drawLine(scoreTableRect.left, scoreMidY, scoreTableRect.right, scoreMidY, redStrokeThin)
 
         val tableHeaderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = EXAM_RED
+            color = examRed
             textSize = 12f
             isFakeBoldText = true
             textAlign = Paint.Align.CENTER
         }
         val tableContentPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = SLATE_GRAY
+            color = slateGray
             textSize = 11.5f
             textAlign = Paint.Align.CENTER
         }
@@ -524,7 +534,7 @@ object AnswerSheetGenerator {
         val totalWritingHeight = answerAreaBottom - answerAreaTop
 
         val subjectiveQTitlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = DARK_TEXT
+            color = darkText
             textSize = 14f
             isFakeBoldText = true
         }
@@ -587,7 +597,7 @@ object AnswerSheetGenerator {
 
         // ==================== 7. 底部考务注脚 (Footer) ====================
         val footerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = SLATE_GRAY
+            color = slateGray
             textSize = 13.5f
             textAlign = Paint.Align.CENTER
         }
