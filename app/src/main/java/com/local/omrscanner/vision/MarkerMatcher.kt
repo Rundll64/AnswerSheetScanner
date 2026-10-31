@@ -2,7 +2,8 @@ package com.local.omrscanner.vision
 
 import com.local.omrscanner.model.Point2D
 import kotlin.math.abs
-import kotlin.math.atan2
+import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.sqrt
 
 data class MatchResult(

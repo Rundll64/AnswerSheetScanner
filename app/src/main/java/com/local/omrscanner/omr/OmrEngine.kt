@@ -10,6 +10,8 @@ import com.local.omrscanner.model.NormalizedRect
 import com.local.omrscanner.model.Point2D
 import com.local.omrscanner.model.QuestionGradeResult
 import com.local.omrscanner.model.ScanRecord
+import com.local.omrscanner.vision.CardDetectionEngine
+import com.local.omrscanner.vision.CardGeometryEstimator
 import java.util.UUID
 import kotlin.math.abs
 import kotlin.math.max
@@ -41,13 +43,10 @@ object OmrEngine {
     )
 
     /**
-     * 自动检测图像中的四角定位点（供前台界面展示并支持用户手动拖动微调）
+     * 自动检测图像中的四角定位点（v1.0.1 升级：调用 CardDetectionEngine 智能四角检测与几何估计）
      */
     fun autoDetectCorners(sourceBitmap: Bitmap): List<Point2D> {
-        val srcW = sourceBitmap.width
-        val srcH = sourceBitmap.height
-        val binaryMask = adaptiveThresholdBradley(sourceBitmap)
-        return findFourCornerFiducials(binaryMask, srcW, srcH)
+        return CardDetectionEngine.autoDetectCorners(sourceBitmap)
     }
 
     /**
@@ -61,25 +60,21 @@ object OmrEngine {
     ): ProcessedSheetOutput {
         val srcW = sourceBitmap.width
         val srcH = sourceBitmap.height
-        val binaryMask = adaptiveThresholdBradley(sourceBitmap)
 
-        // 若用户已在确认界面微调了角点则优先使用，否则自动定位
-        val corners = if (customCorners != null && customCorners.size == 4) {
-            customCorners
+        // 若用户已在确认界面微调了角点则优先使用，否则启用智能四角定位引擎
+        val (corners, warpedBitmap) = if (customCorners != null && customCorners.size == 4) {
+            val warped = CardGeometryEstimator.warpToCanonical(sourceBitmap, customCorners)
+            Pair(customCorners, warped)
         } else {
-            findFourCornerFiducials(binaryMask, srcW, srcH)
+            val detResult = CardDetectionEngine.detectAndWarp(sourceBitmap)
+            if (detResult.warpedBitmap != null) {
+                Pair(detResult.corners, detResult.warpedBitmap)
+            } else {
+                val fallbackCorners = findFourCornerFiducials(adaptiveThresholdBradley(sourceBitmap), srcW, srcH)
+                val warped = CardGeometryEstimator.warpToCanonical(sourceBitmap, fallbackCorners)
+                Pair(fallbackCorners, warped)
+            }
         }
-
-        // 透视变换：拉平为 1200 x 1700 标准正视图
-        val warpedBitmap = warpPerspectiveToCanonical(
-            sourceBitmap,
-            corners[0], // Top-Left
-            corners[1], // Top-Right
-            corners[2], // Bottom-Right
-            corners[3], // Bottom-Left
-            TemplateSpec.CANONICAL_WIDTH,
-            TemplateSpec.CANONICAL_HEIGHT
-        )
 
         val warpedBinary = adaptiveThresholdBradley(warpedBitmap, applyPencilErosion = true)
 
@@ -234,15 +229,8 @@ object OmrEngine {
         sourceBitmap: Bitmap,
         activeQuestionCount: Int
     ): Map<Int, Set<String>> {
-        val srcW = sourceBitmap.width
-        val srcH = sourceBitmap.height
-        val binaryMask = adaptiveThresholdBradley(sourceBitmap)
-        val corners = findFourCornerFiducials(binaryMask, srcW, srcH)
-        val warpedBitmap = warpPerspectiveToCanonical(
-            sourceBitmap,
-            corners[0], corners[1], corners[2], corners[3],
-            TemplateSpec.CANONICAL_WIDTH, TemplateSpec.CANONICAL_HEIGHT
-        )
+        val corners = autoDetectCorners(sourceBitmap)
+        val warpedBitmap = CardGeometryEstimator.warpToCanonical(sourceBitmap, corners)
         val warpedBinary = adaptiveThresholdBradley(warpedBitmap, applyPencilErosion = true)
 
         val extracted = mutableMapOf<Int, Set<String>>()

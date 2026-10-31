@@ -2064,11 +2064,12 @@ fun CustomSheetGeneratorDialog(
     var simulatedId by remember { mutableStateOf("20260815") }
     var subjectiveCount by remember { mutableIntStateOf(2) }
     var subjectiveLines by remember { mutableIntStateOf(8) }
+    var colorMode by remember { mutableStateOf(AnswerSheetGenerator.SheetColorMode.CORAL_RED) }
 
     var selectedSubTab by remember { mutableIntStateOf(0) } // 0: ⚙️ 参数定制, 1: 👁️ A4大图预览
     var previewBitmap by remember { mutableStateOf<Bitmap?>(null) }
 
-    LaunchedEffect(title, subject, countInput, studentIdDigits, optionsCount, isPartitioned, fillDemoMode, simulatedId, subjectiveCount, subjectiveLines) {
+    LaunchedEffect(title, subject, countInput, studentIdDigits, optionsCount, isPartitioned, fillDemoMode, simulatedId, subjectiveCount, subjectiveLines, colorMode) {
         val qCount = countInput.toIntOrNull()?.coerceIn(1, 50) ?: 30
         val cfg = AnswerSheetGenerator.SheetConfig(
             title = title.ifBlank { "标准化考试答题卡" },
@@ -2080,7 +2081,8 @@ fun CustomSheetGeneratorDialog(
             fillDemoMode = fillDemoMode,
             simulatedStudentId = simulatedId,
             subjectiveCount = subjectiveCount,
-            subjectiveLinesPerQuestion = subjectiveLines
+            subjectiveLinesPerQuestion = subjectiveLines,
+            colorMode = colorMode
         )
         previewBitmap = AnswerSheetGenerator.generateSheetBitmap(cfg)
     }
@@ -2399,6 +2401,40 @@ fun CustomSheetGeneratorDialog(
                                 }
                             }
 
+                            // 卡片 4.5: 双模打印色彩模式 (v1.0.1 新增：完美兼容黑白打印机/复印件)
+                            item {
+                                Card(
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                                    border = CardDefaults.outlinedCardBorder()
+                                ) {
+                                    Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                        Text("打印色彩模式（黑白/彩印兼容）", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                        Text("学校若仅有普通黑白激光打印机，推荐选择浅珊瑚红或黑白浅灰，避免红框变成深黑碳粉干扰阅卷：", fontSize = 11.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            FilterChip(
+                                                selected = colorMode == AnswerSheetGenerator.SheetColorMode.CORAL_RED,
+                                                onClick = { colorMode = AnswerSheetGenerator.SheetColorMode.CORAL_RED },
+                                                label = { Text("🌸 浅珊瑚红 (双模推荐)", fontSize = 11.5.sp) }
+                                            )
+                                            FilterChip(
+                                                selected = colorMode == AnswerSheetGenerator.SheetColorMode.LIGHT_GRAY,
+                                                onClick = { colorMode = AnswerSheetGenerator.SheetColorMode.LIGHT_GRAY },
+                                                label = { Text("🖨️ 黑白浅灰", fontSize = 11.5.sp) }
+                                            )
+                                            FilterChip(
+                                                selected = colorMode == AnswerSheetGenerator.SheetColorMode.CLASSIC_RED,
+                                                onClick = { colorMode = AnswerSheetGenerator.SheetColorMode.CLASSIC_RED },
+                                                label = { Text("🟥 经典深红", fontSize = 11.5.sp) }
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
                             // 卡片 5: 缩略图与快速切换预览
                             item {
                                 Surface(
@@ -2535,7 +2571,8 @@ fun CustomSheetGeneratorDialog(
                                         fillDemoMode = fillDemoMode,
                                         simulatedStudentId = simulatedId,
                                         subjectiveCount = subjectiveCount,
-                                        subjectiveLinesPerQuestion = subjectiveLines
+                                        subjectiveLinesPerQuestion = subjectiveLines,
+                                        colorMode = colorMode
                                     )
                                     val docxFile = AnswerSheetGenerator.exportToDocx(context, cfg)
                                     AnswerSheetGenerator.saveToPublicDownloads(context, docxFile, docxFile.name, "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
